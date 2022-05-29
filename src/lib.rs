@@ -1,172 +1,124 @@
-use std::collections::HashMap;
-
-pub struct Device {
-    name: String,
-}
+use std::marker::PhantomData;
 
 pub struct Room {
     name: String,
-    devices: HashMap<String, Device>,
+    devices: Vec<String>,
 }
 
-pub struct Home {
-    name: String,
-    rooms: HashMap<String, Room>,
+pub struct DeviceIterator<'a> {
+    count: usize,
+    devices: &'a Vec<String>,
 }
 
-pub trait ObjectState {
-    fn object_name(&self) -> String;
-    fn list_rooms(&self) -> Option<Vec<&str>>;
-    fn list_devices(&self, room_name: &str) -> Option<Vec<&str>>;
-    fn get_device_state(&self, room_name: &str, device_name: &str) -> String;
-}
+impl<'a> Iterator for DeviceIterator<'a> {
+    type Item = &'a str;
 
-impl Home {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            rooms: HashMap::new(),
-        }
-    }
-
-    pub fn object_name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    pub fn list_rooms(&self) -> Option<Vec<&str>> {
-        let mut rooms: Vec<&str> = Vec::new();
-
-        for k in self.rooms.keys() {
-            rooms.push(k.as_str())
-        }
-
-        if !rooms.is_empty() {
-            Some(rooms)
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.count < self.devices.len() {
+            let index = self.count;
+            self.count += 1;
+            Some(self.devices[index].as_str())
         } else {
             None
         }
     }
+}
 
-    pub fn add_room(&mut self, name: String, room: Room) -> Result<(), String> {
-        let res = self.rooms.get(&name);
-
-        if res.is_some() {
-            return Err("room already exists".to_owned());
+impl Room {
+    pub fn get_device(&self, name: &str) -> Option<&str> {
+        for device in &self.devices {
+            if device.as_str() == name {
+                return Some(device.as_str());
+            };
         }
-
-        let room = self.rooms.insert(name, room);
-        match room {
-            Some(_) => Err("room already exists".to_owned()),
-            None => Ok(()),
-        }
-    }
-
-    pub fn delete_room(&mut self, name: String) -> Option<Room> {
-        self.rooms.remove(&name)
-    }
-
-    pub fn list_devices(&self, room_name: &str) -> Option<Vec<&str>> {
-        let mut devices: Vec<&str> = Vec::new();
-
-        if let Some(room) = self.rooms.get(room_name) {
-            for k in room.devices.keys() {
-                devices.push(k.as_str())
-            }
-            return Some(devices);
-        }
-
+        
         None
     }
-
-    pub fn add_device(
-        &mut self,
-        room_name: String,
-        device_name: String,
-        device_value: Device,
-    ) -> Result<(), String> {
-        let room = self.rooms.get_mut(&room_name);
-        match room {
-            Some(room) => {
-                let device = room.devices.get(&device_name);
-                match device {
-                    Some(_) => {
-                        return Err(format!("device with name: {} already exists", &device_name))
-                    }
-                    None => {
-                        if room
-                            .devices
-                            .insert(device_name.clone(), device_value)
-                            .is_none()
-                        {
-                            return Ok(());
-                        }
-                        return Err(format!("device with name: {} already exists", &device_name));
-                    }
-                }
-            }
-            None => Err(format!("room with name: {} does't exist", room_name)),
-        }
-    }
-
-    pub fn delete_divece(&mut self, room_name: String, device_name: String) -> Result<(), String> {
-        let room = self.rooms.get_mut(&room_name);
-        match room {
-            Some(room) => {
-                let _ = room.devices.remove(&device_name);
-                Ok(())
-            }
-            None => return Err(format!("room with name: {} does't exist", room_name)),
-        }
-    }
-
-    pub fn get_device_state(&self, room_name: &str, device_name: &str) -> String {
-        let room = self.rooms.get(room_name);
-        match room {
-            Some(value) => {
-                if let Some(device) = value.devices.get(device_name) {
-                    return format!(
-                        "Room with name{}, 
-                        original room name - {}, 
-                        has device {} with original device name - {}",
-                        room_name, value.name, device_name, device.name,
-                    );
-                }
-
-                "".to_owned()
-            }
-            None => "".to_owned(),
+    pub fn get_devices(&self) -> DeviceIterator {
+        DeviceIterator {
+            count: 0,
+            devices: &self.devices,
         }
     }
 }
 
-pub fn full_object_report<T: ObjectState>(object: T) -> String {
-    let mut report = String::new();
-    let list_rooms = object.list_rooms();
+pub trait RoomsStorage<'a> {
+    type ItemIterator: Iterator<Item = Room>;
+    fn list_rooms(&self) -> Self::ItemIterator;
+    fn add_room(&mut self, room: &str) -> Result<&Room, String>;
+    fn get_room(&self, name: &str) -> Result<&Room, String>;
+    fn delete_room(&mut self, name: &str) -> Result<(), String>;
+    fn add_device(&mut self, room_name: &str, device_name: &str) -> Result<&str, String>;
+    fn delete_device(&mut self, room_name: &str, device_name: &str) -> Result<(), String>;
+}
 
-    let rooms = match list_rooms {
-        Some(value) => value,
-        None => return format!("Object {} has not rooms", object.object_name()),
-    };
+pub struct Home<'a, S>
+where
+    S: RoomsStorage<'a>,
+{
+    name: String,
+    rooms_storage: S,
+    phantom: PhantomData<&'a S>,
+}
 
-    report.push_str(format!("Report for: {}", object.object_name()).as_str());
+pub trait ObjectReporter {
+    fn get_device_state(&self, room: &str, device: &str) -> &str;
+}
 
-    let rooms_iter = rooms.into_iter();
-    for value in rooms_iter {
-        let devices_list = object.list_devices(value);
-
-        let devices = match devices_list {
-            Some(value) => value,
-            None => continue,
-        };
-
-        for v in devices {
-            let res = object.get_device_state(value, v);
-            if res.is_empty() {
-                continue;
-            }
-            report.push_str(&res)
+impl<'a, S> Home<'a, S>
+where
+    S: RoomsStorage<'a>,
+{
+    pub fn new(name: String, rooms_storage: S) -> Self {
+        Self {
+            name,
+            rooms_storage,
+            phantom: PhantomData,
         }
     }
 
-    report
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub fn list_rooms(&self) -> S::ItemIterator {
+        self.rooms_storage.list_rooms()
+    }
+
+    pub fn add_room(&mut self, room: &str) -> Result<&Room, String> {
+        self.rooms_storage.add_room(room)
+    }
+
+    pub fn delete_room(&mut self, name: &str) -> Result<(), String> {
+        self.rooms_storage.delete_room(name)
+    }
+
+    pub fn add_device(&mut self, room_name: &str, device_name: &str) -> Result<&str, String> {
+        self.rooms_storage.add_device(room_name, device_name)
+    }
+
+    pub fn delete_divece(&mut self, room_name: &str, device_name: &str) -> Result<(), String> {
+        self.rooms_storage.delete_device(room_name, device_name)
+    }
+
+    pub fn get_report<R: ObjectReporter>(&self, reporter: R) -> String {
+        let mut report = String::new();
+        report.push_str(format!("Report for: {}", self.name()).as_str());
+
+        let rooms_iter = self.rooms_storage.list_rooms();
+        for room in rooms_iter {
+            let devices = room.get_devices();
+            for device in devices {
+                let state = reporter.get_device_state(&room.name, device);
+                report.push_str(
+                    format!(
+                        "Room {}, has device {} with state - {}",
+                        &room.name, device, state,
+                    )
+                    .as_str(),
+                )
+            }
+        }
+        report
+    }
 }
