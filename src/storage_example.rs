@@ -6,11 +6,11 @@ pub trait DeviceItem {
     fn get_state(&self) -> &str;
 }
 
-pub struct DevicePovider<T: DeviceItem> {
+pub struct DeviceProvider<T: DeviceItem> {
     room_device_map: HashMap<String, Vec<T>>,
 }
 
-impl<T: DeviceItem> ObjectReporter for DevicePovider<T> {
+impl<T: DeviceItem> ObjectReporter for DeviceProvider<T> {
     fn get_device_state(&self, room: &str, device: &str) -> Result<&str, String> {
         let devices = match self.room_device_map.get(room) {
             Some(dev) => dev,
