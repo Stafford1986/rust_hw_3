@@ -1,4 +1,4 @@
-use std::{collections::HashSet, marker::PhantomData};
+use std::collections::HashSet;
 mod storage_example;
 
 pub struct Room {
@@ -21,8 +21,9 @@ impl Room {
     }
 }
 
-pub trait RoomsStorage<I: Iterator<Item = Room>> {
-    fn list_rooms(&self) -> I;
+pub trait RoomsStorage<'a> {
+    type IterType: Iterator<Item = (&'a String, &'a Room)>;
+    fn list_rooms(&self) -> Self::IterType;
     fn add_room(&mut self, room_name: &str, room: Room) -> Result<&Room, String>;
     fn get_room(&self, name: &str) -> Result<&Room, String>;
     fn delete_room(&mut self, name: &str) -> Result<(), String>;
@@ -30,30 +31,26 @@ pub trait RoomsStorage<I: Iterator<Item = Room>> {
     fn delete_device(&mut self, room_name: &str, device_name: &str) -> Result<(), String>;
 }
 
-pub struct Home<S, I>
+pub struct Home<S>
 where
-    I: Iterator<Item = Room>,
-    S: RoomsStorage<I>,
+    for<'a> S: RoomsStorage<'a>,
 {
     name: String,
     rooms_storage: S,
-    _phantom_i: PhantomData<I>,
 }
 
 pub trait ObjectReporter {
     fn get_device_state(&self, room: &str, device: &str) -> Result<&str, String>;
 }
 
-impl<S, I> Home<S, I>
+impl<S> Home<S>
 where
-    I: Iterator<Item = Room>,
-    S: RoomsStorage<I>,
+    for <'a> S: RoomsStorage<'a>,
 {
     pub fn new(name: String, rooms_storage: S) -> Self {
         Self {
             name,
             rooms_storage,
-            _phantom_i: PhantomData,
         }
     }
 
@@ -61,7 +58,7 @@ where
         self.name.as_str()
     }
 
-    pub fn list_rooms(&self) -> I {
+    pub fn list_rooms(&self) -> <S as RoomsStorage<'_>>::IterType {
         self.rooms_storage.list_rooms()
     }
 
@@ -86,7 +83,7 @@ where
         report.push_str(format!("Report for: {}", self.name()).as_str());
 
         let rooms_iter = self.rooms_storage.list_rooms();
-        for room in rooms_iter {
+        for (room_name, room) in rooms_iter {
             let devices = room.get_devices();
             for device in devices {
                 let state = reporter.get_device_state(&room.name, device.as_str());
@@ -94,7 +91,7 @@ where
                     Ok(state) => report.push_str(
                         format!(
                             "Room {}, has device {} with state - {}",
-                            &room.name, device, state,
+                            room_name, device, state,
                         )
                         .as_str(),
                     ),

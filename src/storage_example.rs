@@ -29,9 +29,38 @@ pub struct InmemoryRoomsStorage {
     rooms: HashMap<String, Room>,
 }
 
-impl<I: Iterator<Item = Room>> RoomsStorage<I> for InmemoryRoomsStorage {
-    fn list_rooms(&self) -> I {
-        todo!()
+pub struct RoomsIterator<'a> {
+    used: Vec<&'a str>,
+    rooms: &'a HashMap<String, Room>
+}
+
+impl<'a> RoomsIterator<'a> {
+    fn new(rooms_map: &'a HashMap<String, Room>) -> Self {
+        RoomsIterator { used: Vec::with_capacity(rooms_map.len()), rooms: rooms_map}
+    }
+}
+
+impl<'a> Iterator for RoomsIterator<'a> {
+    type Item = (&'a String, &'a Room);
+    fn next(&mut self) -> Option<Self::Item> {
+        for (k, v) in self.rooms {
+            if self.used.contains(&k.as_str()) {
+                continue;
+            }
+            self.used.push(k.as_str());
+            
+            return Some((k, v))
+        }
+
+        None
+    }
+}
+
+impl <'a> RoomsStorage<'a> for InmemoryRoomsStorage {
+    //type IterType = Iterator<Item = (&'a String, &'a Room)>;
+    type IterType = RoomsIterator<'a>;
+    fn list_rooms(&self) -> Self::IterType {
+      RoomsIterator::new(&self.rooms)
     }
     fn add_room(&mut self, room_name: &str, room: Room) -> Result<&Room, String> {
         let err_insert = Err(format!("cat't add room {}. already exists", room_name));
