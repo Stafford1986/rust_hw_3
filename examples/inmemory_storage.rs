@@ -1,26 +1,25 @@
-use crate::{ObjectReporter, Room, RoomsStorage};
-use std::collections::HashMap;
+use home_work_3::devices::{DeviceItem, DeviceProvider};
+use home_work_3::home::Home;
+use home_work_3::home::RoomsStorage;
+use home_work_3::room::Room;
+use std::collections::{HashMap, HashSet};
 
-pub trait DeviceItem {
-    fn get_name(&self) -> &str;
-    fn get_state(&self) -> &str;
+enum Device {
+    Breaker(String, String),
+    Thermometr(String, i32),
 }
 
-pub struct DeviceProvider<T: DeviceItem> {
-    room_device_map: HashMap<String, Vec<T>>,
-}
-
-impl<T: DeviceItem> ObjectReporter for DeviceProvider<T> {
-    fn get_device_state(&self, room: &str, device: &str) -> Result<&str, String> {
-        let devices = match self.room_device_map.get(room) {
-            Some(dev) => dev,
-            None => return Err(format!("room {} not found", room)),
-        };
-
-        let item = devices.iter().find(|v| v.get_name() == device);
-        match item {
-            Some(i) => Ok(i.get_state()),
-            None => Err(format!("device {} not found", device)),
+impl DeviceItem for Device {
+    fn get_name(&self) -> &str {
+        match self {
+            Device::Breaker(name, _state) => return name.as_str(),
+            Device::Thermometr(name, _state) => return name.as_str(),
+        }
+    }
+    fn get_state(&self) -> String {
+        match self {
+            Device::Breaker(_name, state) => return state.clone(),
+            Device::Thermometr(_name, state) => return state.clone().to_string(),
         }
     }
 }
@@ -29,14 +28,23 @@ pub struct InmemoryRoomsStorage {
     rooms: HashMap<String, Room>,
 }
 
+impl InmemoryRoomsStorage {
+    fn new(rooms: HashMap<String, Room>) -> Self {
+        InmemoryRoomsStorage { rooms }
+    }
+}
+
 pub struct RoomsIterator<'a> {
     used: Vec<&'a str>,
-    rooms: &'a HashMap<String, Room>
+    rooms: &'a HashMap<String, Room>,
 }
 
 impl<'a> RoomsIterator<'a> {
     fn new(rooms_map: &'a HashMap<String, Room>) -> Self {
-        RoomsIterator { used: Vec::with_capacity(rooms_map.len()), rooms: rooms_map}
+        RoomsIterator {
+            used: Vec::with_capacity(rooms_map.len()),
+            rooms: rooms_map,
+        }
     }
 }
 
@@ -48,19 +56,18 @@ impl<'a> Iterator for RoomsIterator<'a> {
                 continue;
             }
             self.used.push(k.as_str());
-            
-            return Some((k, v))
+
+            return Some((k, v));
         }
 
         None
     }
 }
 
-impl <'a> RoomsStorage<'a> for InmemoryRoomsStorage {
-    //type IterType = Iterator<Item = (&'a String, &'a Room)>;
+impl<'a> RoomsStorage<'a> for InmemoryRoomsStorage {
     type IterType = RoomsIterator<'a>;
-    fn list_rooms(&self) -> Self::IterType {
-      RoomsIterator::new(&self.rooms)
+    fn list_rooms(&'a self) -> Self::IterType {
+        RoomsIterator::new(&self.rooms)
     }
     fn add_room(&mut self, room_name: &str, room: Room) -> Result<&Room, String> {
         let err_insert = Err(format!("cat't add room {}. already exists", room_name));
@@ -97,7 +104,7 @@ impl <'a> RoomsStorage<'a> for InmemoryRoomsStorage {
             Some(room) => room,
             None => return Err(format!("room {} not found", room_name)),
         };
-        let is_success = room.devices.insert(device_name.to_string());
+        let is_success = room.insert_device(device_name.to_string());
         if is_success {
             return Ok(());
         }
@@ -112,7 +119,7 @@ impl <'a> RoomsStorage<'a> for InmemoryRoomsStorage {
             Some(room) => room,
             None => return Err(format!("room {} not found", room_name)),
         };
-        let is_success = room.devices.remove(device_name);
+        let is_success = room.remove_device(device_name);
         if is_success {
             return Ok(());
         }
@@ -122,4 +129,41 @@ impl <'a> RoomsStorage<'a> for InmemoryRoomsStorage {
             device_name, room_name
         ))
     }
+}
+
+fn main() {
+    let mut device_map: HashMap<String, Vec<Device>> = HashMap::new();
+    let breaker = Device::Breaker("Breaker".into(), "OFF".into());
+    let thermometr = Device::Thermometr("Thermometr".into(), 20);
+    if let Some(_val) = device_map.insert("badroom".to_owned(), vec![breaker, thermometr]) {
+        panic!("value already presents in device map")
+    }
+
+    let device_provider = DeviceProvider::new(device_map);
+
+    let mut rooms_map = HashMap::new();
+    if let Some(_val) = rooms_map.insert(
+        "Bedroom".to_owned(),
+        Room::new(
+            "badroom".into(),
+            HashSet::from(["Breaker".to_owned(), "Thermometr".to_owned()]),
+        ),
+    ) {
+        panic!("value already presents in device map")
+    }
+    if let Some(_val) = rooms_map.insert(
+        "Kitchen".to_owned(),
+        Room::new(
+            "kirchen".into(),
+            HashSet::from(["Breaker".to_owned(), "fridge".to_owned()]),
+        ),
+    ) {
+        panic!("value already presents in device map")
+    }
+
+    let inmemory_rooms_storage = InmemoryRoomsStorage::new(rooms_map);
+
+    let home = Home::new("SmartHome".to_owned(), inmemory_rooms_storage);
+    let report = home.get_report(device_provider);
+    println!("{}", report)
 }
